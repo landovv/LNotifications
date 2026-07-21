@@ -1,11 +1,15 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const http = require('http');
+const net = require('net');
+
+const USER_DATA_PATH = app.getPath('userData');
+const CONFIG_PATH = path.join(USER_DATA_PATH, 'config.json');
+const SESSION_NAME = 'my_session';
 
 let config = null;
-let configPath = path.join(__dirname, 'config.json');
 let pythonProcess = null;
 let setupWin = null;
 let notifWin = null;
@@ -19,8 +23,8 @@ const DEFAULT_DURATION = 5000;
 
 function loadConfig() {
     try {
-        if (fs.existsSync(configPath)) {
-            config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (fs.existsSync(CONFIG_PATH)) {
+            config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
             mainPort = config.notifications?.port || 47856;
             return true;
         }
@@ -38,16 +42,51 @@ function getPythonCommand() {
     return path.join(process.resourcesPath, 'python', 'telegram_listener.exe');
 }
 
-function startPython(port, args = []) {
+function killAllTelegramListener() {
+    try {
+        execSync('taskkill /f /im telegram_listener.exe 2>nul', { stdio: 'ignore' });
+    } catch (e) {}
+}
+
+function waitForPort(port, timeout = 15000) {
+    return new Promise((resolve, reject) => {
+        const start = Date.now();
+        const tryConnect = () => {
+            const socket = new net.Socket();
+            socket.once('connect', () => {
+                socket.destroy();
+                resolve();
+            });
+            socket.once('error', () => {
+                socket.destroy();
+                if (Date.now() - start > timeout) {
+                    reject(new Error(`Timeout waiting for port ${port}`));
+                } else {
+                    setTimeout(tryConnect, 300);
+                }
+            });
+            socket.connect(port, '127.0.0.1');
+        };
+        tryConnect();
+    });
+}
+
+function startPython(port, args = [], noServer = false) {
+    killAllTelegramListener();
+
     const cmd = getPythonCommand();
     const allArgs = [];
     if (!app.isPackaged) {
         allArgs.push('telegram_listener.py');
     }
-    allArgs.push(`--port=${port}`, ...args);
+    allArgs.push(`--port=${port}`, `--user-data=${USER_DATA_PATH}`, ...args);
+    if (noServer) {
+        allArgs.push('--no-server');
+    }
     pythonProcess = spawn(cmd, allArgs, { stdio: 'pipe' });
     pythonProcess.on('error', (err) => console.error('Python error:', err));
     pythonProcess.stderr.on('data', (data) => console.error(`Python stderr: ${data}`));
+    pythonProcess.stdout.on('data', (data) => console.log(`Python stdout: ${data}`));
 }
 
 function stopPython() {
@@ -55,17 +94,24 @@ function stopPython() {
         pythonProcess.kill();
         pythonProcess = null;
     }
+    killAllTelegramListener();
 }
 
 function sendSetupAction(payload, callback) {
     const postData = JSON.stringify(payload);
-    const req = http.request({
+    const options = {
         hostname: '127.0.0.1',
         port: SETUP_PORT,
         path: '/setup',
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    }, (res) => {
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+        },
+        timeout: 10000
+    };
+
+    const req = http.request(options, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
@@ -73,17 +119,23 @@ function sendSetupAction(payload, callback) {
                 const response = JSON.parse(data);
                 callback(null, response);
             } catch (e) {
-                callback(e, null);
+                callback(new Error('Invalid JSON from Python'), null);
             }
         });
     });
-    req.on('error', (e) => callback(e, null));
+
+    req.on('timeout', () => {
+        req.destroy();
+        callback(new Error('Request timeout'), null);
+    });
+
+    req.on('error', (e) => {
+        console.error(`Setup request error: ${e.message}`);
+        callback(e, null);
+    });
+
     req.write(postData);
     req.end();
-}
-
-function checkAuthorizationStatus(callback) {
-    sendSetupAction({ action: 'check_authorized' }, callback);
 }
 
 function createSetupWindow() {
@@ -116,30 +168,30 @@ const setupHtml = `
 <body>
 <div id="step1" class="step active">
   <h2>Welcome!</h2>
-  <p>Enter your Telegram application details (my.telegram.org)</p>
+  <p>Enter your Telegram app credentials (my.telegram.org)</p>
   <input id="api_id" placeholder="API ID (number)" type="number">
-  <input id="api_hash" placeholder="API Hash (line)" type="text">
+  <input id="api_hash" placeholder="API Hash (string)" type="text">
   <button onclick="nextStep()">Next</button>
 </div>
 <div id="step2" class="step">
-  <h2>Log in to Telegram</h2>
-  <p>Enter phone number (with the country code)</p>
+  <h2>Telegram Login</h2>
+  <p>Enter your phone number (with country code)</p>
   <input id="phone" placeholder="+79991234567" type="text">
   <button onclick="sendPhone()">Send code</button>
   <div class="error" id="errorMsg"></div>
 </div>
 <div id="step3" class="step">
-  <h2>Confirmation</h2>
+  <h2>Verification</h2>
   <p>Enter the code from Telegram</p>
   <input id="code" placeholder="Code" type="text">
-  <button onclick="sendCode()">Enter</button>
+  <button onclick="sendCode()">Sign in</button>
   <div class="error" id="errorMsg3"></div>
 </div>
 <div id="step4" class="step">
   <h2>Cloud password</h2>
   <p>Enter your cloud password (if enabled)</p>
   <input id="password" placeholder="Password" type="password">
-  <button onclick="sendPassword()">Enter</button>
+  <button onclick="sendPassword()">Sign in</button>
   <div class="error" id="errorMsg4"></div>
 </div>
 <script>
@@ -160,6 +212,10 @@ const setupHtml = `
 
   function sendPhone() {
     phone = document.getElementById('phone').value;
+    if (!phone.startsWith('+')) {
+      document.getElementById('errorMsg').textContent = 'Phone number must include country code (e.g. +79991234567)';
+      return;
+    }
     ipcRenderer.send('setup-action', { action: 'send_code', phone: phone });
   }
 
@@ -178,9 +234,11 @@ const setupHtml = `
     document.getElementById('errorMsg3').textContent = msg;
     document.getElementById('errorMsg4').textContent = msg;
   });
+
   ipcRenderer.on('setup-next', (event, step) => {
     if (step === 'code') showStep('step3');
     else if (step === 'password') showStep('step4');
+    else if (step === 'phone') showStep('step2');
     else if (step === 'done') ipcRenderer.send('setup-done');
   });
 </script>
@@ -476,12 +534,12 @@ function startNotificationServer() {
     });
 }
 
-ipcMain.on('save-config', (event, data) => {
+ipcMain.on('save-config', async (event, data) => {
     const cfg = {
         telegram: {
             api_id: parseInt(data.api_id),
             api_hash: data.api_hash,
-            session_name: 'my_session'
+            session_name: SESSION_NAME
         },
         notifications: {
             port: 47856,
@@ -492,15 +550,25 @@ ipcMain.on('save-config', (event, data) => {
             max_visible: 1
         }
     };
-    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+    if (!fs.existsSync(USER_DATA_PATH)) {
+        fs.mkdirSync(USER_DATA_PATH, { recursive: true });
+    }
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
     loadConfig();
-    startPython(SETUP_PORT);
+    startPython(SETUP_PORT, [], false);
+
+    try {
+        await waitForPort(SETUP_PORT, 15000);
+        event.reply('setup-next', 'phone');
+    } catch (e) {
+        event.reply('setup-error', 'Python setup server did not start. Please try again.');
+    }
 });
 
 ipcMain.on('setup-action', (event, payload) => {
     sendSetupAction(payload, (err, response) => {
         if (err) {
-            event.reply('setup-error', 'Python process is not responding.');
+            event.reply('setup-error', 'Python process is not responding');
             return;
         }
         if (response.status === 'code_sent') {
@@ -518,42 +586,34 @@ ipcMain.on('setup-action', (event, payload) => {
 ipcMain.on('setup-done', () => {
     if (setupWin) setupWin.close();
     stopPython();
-
-    startPython(mainPort);
-
+    startPython(mainPort, [], true);
     notifWin = createNotificationWindow();
     startNotificationServer();
-
     setTimeout(() => updateNotification('System', 'Setup complete! Notifications are working.', null, 5000), 1000);
 });
 
 app.whenReady().then(() => {
     if (!loadConfig()) {
-
         createSetupWindow();
     } else {
-
-        startPython(mainPort);
+        startPython(mainPort, [], true);
         notifWin = createNotificationWindow();
         startNotificationServer();
-        setTimeout(() => updateNotification('System', 'The application has started.', null, 3000), 500);
+        setTimeout(() => updateNotification('System', 'App started', null, 3000), 500);
     }
-
 
     const ghost = new BrowserWindow({
         width: 1, height: 1, show: false, skipTaskbar: true,
         webPreferences: { nodeIntegration: false, contextIsolation: true }
     });
     ghost.loadURL('about:blank');
-
     ghost.on('closed', () => {
         stopPython();
         app.quit();
     });
 });
 
-app.on('window-all-closed', () => {
-});
+app.on('window-all-closed', () => {});
 
 app.on('before-quit', () => {
     stopPython();
