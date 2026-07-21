@@ -21,7 +21,7 @@ __pycache__/
 # Логи
 *.log
 
-# Скомпилированный Python-EXE (если не хочешь хранить бинарники)
+# Скомпилированный Python-EXE
 resources/python/*.exe
 resources/python/*.pyd
 resources/python/*.dll
