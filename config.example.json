@@ -1,0 +1,15 @@
+{
+  "telegram": {
+    "api_id": 12345678, 
+    "api_hash": "you_api_hash",
+    "session_name": "my_session"
+  },
+  "notifications": {
+    "port": 47856,
+    "duration": 5000,
+    "width": 380,
+    "height": 90,
+    "position": "center-top",
+    "max_visible": 1
+  }
+}

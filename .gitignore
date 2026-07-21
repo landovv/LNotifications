@@ -1,0 +1,27 @@
+# Конфиденциальные данные
+config.json
+
+# Файлы сессий Telegram
+*.session
+*.session-journal
+
+# Зависимости Node.js
+node_modules/
+
+# Собранное приложение
+dist/
+
+# Временные файлы PyInstaller
+build/
+*.spec
+
+# Кэш Python
+__pycache__/
+
+# Логи
+*.log
+
+# Скомпилированный Python-EXE (если не хочешь хранить бинарники)
+resources/python/*.exe
+resources/python/*.pyd
+resources/python/*.dll

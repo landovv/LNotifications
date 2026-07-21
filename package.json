@@ -1,0 +1,28 @@
+{
+  "name": "lnotifications",
+  "version": "1.0.0",
+  "description": "New notification design for Telegram",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.landovv.lnotifications",
+    "productName": "LNotifications",
+    "win": {
+      "target": "nsis",
+      "icon": "icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "resources/python",
+        "to": "python"
+      }
+    ]
+  }
+}
