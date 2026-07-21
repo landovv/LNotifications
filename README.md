@@ -24,6 +24,9 @@ Custom Telegram notifications at the top of the screen with smooth animations an
 
 On subsequent launches the wizard does not appear — the program starts immediately.
 
+### ⚠️ Note for Windows users
+On first launch, SmartScreen may show a warning. Click "More info" → "Run anyway". This happens because the installer does not have a paid code‑signing certificate. The program is completely safe – its source code is open.
+
 ## 🛠 Installation from source (for developers)
 
 ### Prerequisites
