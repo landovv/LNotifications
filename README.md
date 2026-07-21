@@ -4,7 +4,7 @@ Custom Telegram notifications at the top of the screen with smooth animations an
 
 **Key features:**
 - 🔔 Notifications centered at the top of the screen (don’t overlap the system tray)
-- 🧑 Sender avatars (Telegram profile photos)
+- 🧑‍🦱 Sender avatars (Telegram profile photos)
 - 📹 Message type detection: voice (with duration), video, photo, sticker, document, location, poll, contact
 - 💬 Highlighting of mentions of your name or @username (animated white border)
 - 🎨 Transparent window with blur effect, soft shadow and animation
