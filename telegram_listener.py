@@ -170,7 +170,7 @@ async def main():
         await client.start()
         authorized = True
     else:
-        await client.connect()   # устанавливаем соединение, не запрашивая телефон
+        await client.connect()
 
         app = web.Application()
         app.router.add_post('/setup', setup_handler)
@@ -181,7 +181,6 @@ async def main():
         await site.start()
         print(f"Setup server started on port {PORT}")
 
-        # Ждём, пока не авторизуемся через HTTP-команды
         while not authorized:
             await asyncio.sleep(1)
 
